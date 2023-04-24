@@ -1,5 +1,21 @@
+authentication:
+  jwt:
+    jwks:
+      - url: https://nate-anderson.eu.auth0.com/.well-known/jwks.json
 plugins:
   # this plugin has one piece of configuration,
   # the name of the entity you'd like to say hello to
   example.hello_world:
     name: "Bob"
+    allow_list:
+      Query:
+        - me
+        - topProducts
+      User:
+        - name
+        - id
+      Review:
+        - body
+      Product:
+        - name
+        - reviews

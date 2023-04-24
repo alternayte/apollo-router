@@ -129,10 +129,10 @@ impl EntitlementReport {
                 .value(true)
                 .name("Restricted")
                 .build(),
-            ConfigurationRestriction::builder()
-                .path("$.authentication")
-                .name("Authentication plugin")
-                .build(),
+            // ConfigurationRestriction::builder()
+            //     .path("$.authentication")
+            //     .name("Authentication plugin")
+            //     .build(),
             ConfigurationRestriction::builder()
                 .path("$.coprocessor")
                 .name("Coprocessor plugin")

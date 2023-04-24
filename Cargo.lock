@@ -2632,8 +2632,11 @@ name = "hello-world"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "apollo-parser 0.5.1",
  "apollo-router",
  "async-trait",
+ "graphql-parser",
+ "http",
  "schemars",
  "serde",
  "serde_json",

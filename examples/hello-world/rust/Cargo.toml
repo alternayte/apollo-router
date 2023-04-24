@@ -10,7 +10,10 @@ apollo-router = { path = "../../../apollo-router" }
 async-trait = "0.1"
 schemars = { version = "0.8", features = ["url"] }
 serde = "1"
+http = "0.2"
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 tower = { version = "0.4", features = ["full"] }
 tracing = "0.1"
+apollo-parser = "0.5.1"
+graphql-parser = "0.4.0"
