@@ -304,6 +304,7 @@ dependencies = [
  "fred",
  "futures",
  "futures-test",
+ "graphql-parser",
  "graphql_client",
  "heck 0.4.1",
  "hex",
