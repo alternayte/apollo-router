@@ -15,7 +15,7 @@ use std::iter::once;
 use std::ops::ControlFlow;
 use std::sync::Arc;
 use graphql_parser::{query as q, parse_query, parse_schema, schema as s, schema};
-use graphql_parser::query::{Definition, Document, OperationDefinition, Type};
+use graphql_parser::query::{Definition, Document, OperationDefinition, Type, TypeCondition};
 use std::vec::Vec;
 use apollo_router::layers::ServiceBuilderExt;
 use http::StatusCode;
@@ -53,72 +53,23 @@ impl Plugin for HelloWorld {
 
         let allow_list = self.configuration.allow_list.clone();
 
-        // let sdl = Parser::new(&*supergraph_sdl.clone()).parse().document();
         let sdl = supergraph_sdl.to_owned();
-        // let sdl_str = sdl.to_string().as_str();
-        // sdl.to_owned();
-
-
-        // service.map_request(|request| {
-        //     request
-        // }).boxed();
-        // Parse the query
-
-
-        // Example queries
-        let allowed_query = r#"
-        query MyQuery {
-            recommendations {
-                id
-                article {
-                    title
-                }
-            }
-        }
-    "#;
-
-        let denied_query = r#"
-        query MyQuery {
-            recommendations {
-                id
-                article {
-                    title
-                    country {
-                        articles {
-                            id
-                        }
-                    }
-                }
-            }
-        }
-    "#;
 
         fn convert_map<'a>(map: &'a HashMap<String, Vec<String>>) -> HashMap<&'a str, Vec<&'a str>> {
             let mut result = HashMap::new();
             for (key, value) in map.iter() {
-                // let new_key: &str = key.as_str();
-                // let new_value: Vec<&str> = value.iter().map(|s| s.as_str()).collect();
                 let new_key: &str = key.as_str();
                 let new_value = value.iter().map(|s| s.as_str()).collect();
                 result.insert(new_key, new_value);
             }
             result
         }
-        // Check if allowed query is allowed by the whitelist
-        // let is_allowed = is_query_allowed(allowed_query, &whitelist, schema);
-        // println!("Allowed query is allowed? {}", is_allowed); // Expected output: true
-
-        // Check if denied query is allowed by the whitelist
-        // let is_allowed = is_query_allowed(denied_query, &whitelist,schema);
-        // println!("Denied query is allowed? {}", is_allowed);
-        //let schema_doc = schema_ast.clone();
 
         // Say hello when our service is added to the router_service
         // stage of the router plugin pipeline.
-        #[cfg(test)]
-        println!("Hello {}", self.configuration.name);
-        #[cfg(not(test))]
-        tracing::info!("Hello {}", self.configuration.name);
+        // #[cfg(test)]
+        // println!("Hello {}", self.configuration.name);
+
         // Always use service builder to compose your plugins.
         // It provides off the shelf building blocks for your plugin.
         ServiceBuilder::new()
@@ -169,61 +120,10 @@ impl Plugin for HelloWorld {
                     Ok(ControlFlow::Break(res))
                 } else {
                     // we're good to go!
-                    tracing::info!("operation is allowed!");
+                    tracing::info!("Operation is allowed!");
                     Ok(ControlFlow::Continue(req))
                 }
-                // The http_request is stored in a `SupergraphRequest` context.
-                // Its `body()` is an `apollo_router::Request`, that contains:
-                // - Zero or one query
-                // - Zero or one operation_name
-                // - Zero or more variables
-                // - Zero or more extensions
-                // let maybe_operation_name = req.supergraph_request.body().operation_name.as_ref();
-                // if maybe_operation_name.is_none()
-                //     || maybe_operation_name
-                //     .expect("is_none() has been checked before; qed")
-                //     .is_empty()
-                // {
-                //     // let's log the error
-                //     tracing::error!("Operation is not allowed!");
-                //
-                //     // Prepare an HTTP 400 response with a GraphQL error message
-                //     let res = supergraph::Response::error_builder()
-                //         .error(
-                //             graphql::Error::builder()
-                //                 .message("Anonymous operations are not allowed")
-                //                 .extension_code("ANONYMOUS_OPERATION")
-                //                 .build(),
-                //         )
-                //         .status_code(StatusCode::BAD_REQUEST)
-                //         .context(req.context)
-                //         .build()?;
-                //     Ok(ControlFlow::Break(res))
-                // } else {
-                //     // we're good to go!
-                //     tracing::info!("operation is allowed!");
-                //     Ok(ControlFlow::Continue(req))
-                // }
             })
-            // .map_request(move |req: supergraph::Request| {
-            //
-            //     // Populate a value in context for use later.
-            //     // Context values must be serializable to serde_json::Value.
-            //     if let Err(e) = req.context.insert("incoming_data", "world!".to_string()) {
-            //         // This can only happen if the value could not be serialized.
-            //         // In this case we will never fail because we are storing a string which we
-            //         // know can be stored as Json.
-            //         tracing::info!("failed to set context data {}", e);
-            //     }
-            //     req
-            // })
-            // .map_response(|response:_| {
-            //     // Pick up a value from the context on the response.
-            //     // if let Ok(Some(data)) = response.context.get::<_, u64>("response_count") {
-            //     //     tracing::info!("subrequest count {}", data);
-            //     // }
-            //     response
-            // })
             // .rate_limit()
             // .checkpoint()
             // .timeout()
@@ -271,9 +171,6 @@ fn get_field_type<'a>(field_name: &str, schema_doc: s::Document<'a,&'a str>, par
                                     Some(nn_type.to_string())
                                 }
                             };
-                            if let Type::NamedType(type_name) = &field.field_type {
-                                return Some(type_name.to_string());
-                            }
                         }
                     }
                 }
@@ -292,6 +189,9 @@ fn check_fields_allowed<'a>(field_map: &HashMap<&str, Vec<&str>>, sel_set: &Vec<
                     return true
                 }
                 if let Some(allowed_fields) = field_map.get(parent_type) {
+                    if allowed_fields.contains(&"*") {
+                        return true;
+                    }
                     if !allowed_fields.contains(&field_name) {
                         return false;
                     }
@@ -309,11 +209,11 @@ fn check_fields_allowed<'a>(field_map: &HashMap<&str, Vec<&str>>, sel_set: &Vec<
                 }
             },
             q::Selection::FragmentSpread(spread) => {
-                // if let Some(fragment_type) = &spread.type_condition {
-                //     if !check_fields_allowed(field_map, &spread.fragment.selection_set.items, fragment_type, schema_doc) {
-                //         return false;
-                //     }
-                // }
+                if let fragment_type = spread.fragment_name {
+                    // if !check_fields_allowed(field_map, &spread.fragment.selection_set.items, fragment_type, schema_doc) {
+                    //     return false;
+                    // }
+                }
             },
             q::Selection::InlineFragment(frag) => {
                 if let Some(fragment_type) = &frag.type_condition {
@@ -333,119 +233,8 @@ fn check_fields_allowed<'a>(field_map: &HashMap<&str, Vec<&str>>, sel_set: &Vec<
 }
 
 fn schema_validator<'a>(query_ast: Document<'a,&'a str>, schema_ast: s::Document<'a,&'a str>, allow_list: HashMap<&str, Vec<&str>>) -> bool {
-    let schema_sdl = r#"
 
-schema
-  @core(feature: "https://specs.apollo.dev/core/v0.2"),
-  @core(feature: "https://specs.apollo.dev/join/v0.1", for: EXECUTION)
-{
-  query: Query
-  mutation: Mutation
-}
-
-directive @core(as: String, feature: String!, for: core__Purpose) repeatable on SCHEMA
-
-directive @join__field(graph: join__Graph, provides: join__FieldSet, requires: join__FieldSet) on FIELD_DEFINITION
-
-directive @join__graph(name: String!, url: String!) on ENUM_VALUE
-
-directive @join__owner(graph: join__Graph!) on INTERFACE | OBJECT
-
-directive @join__type(graph: join__Graph!, key: join__FieldSet) repeatable on INTERFACE | OBJECT
-
-type Mutation {
-  createProduct(name: String, upc: ID!): Product @join__field(graph: PRODUCTS)
-  createReview(body: String, id: ID!, upc: ID!): Review @join__field(graph: REVIEWS)
-}
-
-type Product
-  @join__owner(graph: PRODUCTS)
-  @join__type(graph: PRODUCTS, key: "upc")
-  @join__type(graph: INVENTORY, key: "upc")
-  @join__type(graph: REVIEWS, key: "upc")
-{
-  inStock: Boolean @join__field(graph: INVENTORY)
-  name: String @join__field(graph: PRODUCTS)
-  price: Int @join__field(graph: PRODUCTS)
-  reviews: [Review] @join__field(graph: REVIEWS)
-  reviewsForAuthor(authorID: ID!): [Review] @join__field(graph: REVIEWS)
-  shippingEstimate: Int @join__field(graph: INVENTORY, requires: "price weight")
-  upc: String! @join__field(graph: PRODUCTS)
-  weight: Int @join__field(graph: PRODUCTS)
-}
-
-type Query {
-  me: User @join__field(graph: ACCOUNTS)
-  topProducts(first: Int = 5): [Product] @join__field(graph: PRODUCTS)
-}
-
-type Review
-  @join__owner(graph: REVIEWS)
-  @join__type(graph: REVIEWS, key: "id")
-{
-  author: User @join__field(graph: REVIEWS, provides: "username")
-  body: String @join__field(graph: REVIEWS)
-  id: ID! @join__field(graph: REVIEWS)
-  product: Product @join__field(graph: REVIEWS)
-}
-
-type User
-  @join__owner(graph: ACCOUNTS)
-  @join__type(graph: ACCOUNTS, key: "id")
-  @join__type(graph: REVIEWS, key: "id")
-{
-  id: ID! @join__field(graph: ACCOUNTS)
-  name: String @join__field(graph: ACCOUNTS)
-  reviews: [Review] @join__field(graph: REVIEWS)
-  username: String @join__field(graph: ACCOUNTS)
-}
-
-enum core__Purpose {
-  """
-  `EXECUTION` features provide metadata necessary to for operation execution.
-  """
-  EXECUTION
-
-  """
-  `SECURITY` features provide metadata necessary to securely resolve fields.
-  """
-  SECURITY
-}
-
-scalar join__FieldSet
-
-enum join__Graph {
-  ACCOUNTS @join__graph(name: "accounts" url: "https://accounts.demo.starstuff.dev")
-  INVENTORY @join__graph(name: "inventory" url: "https://inventory.demo.starstuff.dev")
-  PRODUCTS @join__graph(name: "products" url: "https://products.demo.starstuff.dev")
-  REVIEWS @join__graph(name: "reviews" url: "https://reviews.demo.starstuff.dev")
-}
-
-    "#;
-
-    // Parse the schema
-    //let schema_ast = parse_schema::<&str>(schema_sdl).unwrap();
-
-// Define the query as a string
-    let query = r#"
-    query MyQuery {
-        me {
-            name
-            id
-        }
-        topProducts {
-            name
-            price
-            reviews {
-                body
-            }
-        }
-    }
-"#;
-
-    // Parse the query
-    //let query_ast = parse_query::<&str>(query).unwrap();
-
+    let schema_doc = schema_ast.clone();
     let mut object_types = vec![];
 
     for definition in &schema_ast.definitions {
@@ -462,48 +251,63 @@ enum join__Graph {
         }
     }
 
-    // let mut allowed = HashMap::new();
-    // allowed.insert("Query",vec!["me","topProducts"]);
-    // allowed.insert("User",vec!["name"]);
     let allowed = allow_list;
-    let selections = &query_ast.definitions[0];
-    match selections {
-        Definition::Operation(op) => {
-            match op {
-                OperationDefinition::SelectionSet(sset) => {
-                    let selects = &sset.items;
-                    let parent_type = "Query"; // The root query type
-                    let result = check_fields_allowed(&allowed, selects, &parent_type,schema_ast);
-                    println!("result is {result}");
-                    if result {
-                        println!("bad query");
-                        return result
+    let definitions = &query_ast.definitions;
+
+    // loop over all the operations in the query
+    for definition in definitions {
+        match definition {
+            Definition::Operation(op) => {
+                match op {
+                    OperationDefinition::SelectionSet(sset) => {
+                        let selects = &sset.items;
+                        let parent_type = "Query"; // The root query type
+                        let result = check_fields_allowed(&allowed, selects, &parent_type,schema_doc.clone());
+                        println!("validation result is {result}");
+                        if result {
+                            println!("Bad query");
+                            return result
+                        }
+                    }
+                    OperationDefinition::Query(qq) => {
+                        let selects = &qq.selection_set.items;
+                        let parent_type = "Query"; // The root query type
+                        let result = check_fields_allowed(&allowed, selects, &parent_type,schema_doc.clone());
+                        println!("validation result is {result}");
+                        if !result {
+                            println!("Bad query");
+                            return result
+                        }
+                    }
+                    OperationDefinition::Mutation(mt) => {
+                        let selects = &qq.selection_set.items;
+                        let parent_type = "Mutation"; // The root query type
+                        let result = check_fields_allowed(&allowed, selects, &parent_type,schema_doc.clone());
+                        println!("validation result is {result}");
+                        if !result {
+                            println!("Bad query");
+                            return result
+                        }
+                    }
+                    OperationDefinition::Subscription(_) => {}
+                }
+            }
+            Definition::Fragment(frag) => {
+                if let fragment_type = &frag.type_condition {
+                    match fragment_type {
+                        TypeCondition::On(ty) => {
+                            if !check_fields_allowed(&allowed, &frag.selection_set.items, ty, schema_doc.clone()) {
+                                return false;
+                            }
+                        }
                     }
                 }
-                OperationDefinition::Query(qq) => {
-                    let selects = &qq.selection_set.items;
-                    let parent_type = "Query"; // The root query type
-                    let result = check_fields_allowed(&allowed, selects, &parent_type,schema_ast);
-                    println!("result is {result}");
-                    if !result {
-                        println!("bad query");
-                        return result
-                    }
-                }
-                OperationDefinition::Mutation(_) => {}
-                OperationDefinition::Subscription(_) => {}
             }
         }
-        Definition::Fragment(_) => {}
     }
 
-    // for obj_type in object_types {
-    //     println!("Object type name: {}", obj_type.name);
-    //     println!("Fields:");
-    //     for field in obj_type.fields {
-    //         println!("    {}", field.name);
-    //     }
-    // }
+
+
 true
 }
 

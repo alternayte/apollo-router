@@ -41,6 +41,7 @@ type Product
 type Query {
   me: User @join__field(graph: ACCOUNTS)
   topProducts(first: Int = 5): [Product] @join__field(graph: PRODUCTS)
+  spaces(where: spaceWhereUniqueInput): [space] @join__field(graph: ACCOUNTS)
 }
 
 type Review
@@ -83,4 +84,13 @@ enum join__Graph {
   INVENTORY @join__graph(name: "inventory" url: "https://inventory.demo.starstuff.dev")
   PRODUCTS @join__graph(name: "products" url: "https://products.demo.starstuff.dev")
   REVIEWS @join__graph(name: "reviews" url: "https://reviews.demo.starstuff.dev")
+}
+
+type space {
+  id: ID!
+  name: String!
+}
+
+input spaceWhereUniqueInput {
+  id: ID
 }

@@ -11,11 +11,15 @@ plugins:
       Query:
         - me
         - topProducts
+        - spaces
+      space:
+        - id
+        - name
       User:
         - name
         - id
       Review:
-        - body
+        - '*'
       Product:
         - name
         - reviews
