@@ -14,18 +14,22 @@ use apollo_parser::Parser;
 use std::iter::once;
 use std::ops::ControlFlow;
 use std::sync::Arc;
+use std::time::Instant;
 use graphql_parser::{query as q, parse_query, parse_schema, schema as s, schema};
 use graphql_parser::query::{Definition, Document, OperationDefinition, Type, TypeCondition};
 use std::vec::Vec;
 use apollo_router::layers::ServiceBuilderExt;
 use http::StatusCode;
+// use crate::plugins::authentication::APOLLO_AUTHENTICATION_JWT_CLAIMS;
+
+
 
 
 #[derive(Debug)]
 struct HelloWorld {
     #[allow(dead_code)]
     configuration: Conf,
-    supergraph_sdl: Arc<String>
+    supergraph_sdl: Arc<String>,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
@@ -49,6 +53,9 @@ impl Plugin for HelloWorld {
 
     fn supergraph_service(&self, service: supergraph::BoxService) -> supergraph::BoxService {
 
+        let mut valid_query: bool = false;
+
+
         let supergraph_sdl = self.supergraph_sdl.clone().to_string();
 
         let allow_list = self.configuration.allow_list.clone();
@@ -65,6 +72,10 @@ impl Plugin for HelloWorld {
             result
         }
 
+        println!("super service");
+        let schema_ast = parse_schema::<&str>(&supergraph_sdl).unwrap();
+
+
         // Say hello when our service is added to the router_service
         // stage of the router plugin pipeline.
         // #[cfg(test)]
@@ -74,55 +85,127 @@ impl Plugin for HelloWorld {
         // It provides off the shelf building blocks for your plugin.
         ServiceBuilder::new()
             .checkpoint(move |req: supergraph::Request| {
-                let schema_ast = parse_schema::<&str>(&*supergraph_sdl).unwrap();
+                let start_time = Instant::now();
+
+                let mut is_user: bool = false;
+                let elapsed_time = start_time.elapsed();
+
+                println!("Elapsed time bef: {:?}", elapsed_time);
 
                 let inc_query = req.supergraph_request.body().query.as_ref().unwrap();
                 let claims = req.context.get("apollo_authentication::JWT::claims");
+
+                let mut current_roles:Vec<String> = Vec::new();
                 if let Ok(Some(claims)) = claims {
                     match claims {
                         serde_json::Value::Object(map) => {
-                            for (key, value) in map.iter() {
-                                println!("{}: {}", key, value);
-                            }
+                            // for (key, value) in map.iter() {
+                            //     println!("{}: {}", key, value);
+                            //
+                            //     match key.as_str() {
+                            //         "x-hasura-allowed-roles" => {
+                            //             if let Some(array) = value.as_array() {
+                            //                 for role in array {
+                            //                     if let Some(role_str) = role.as_str() {
+                            //                         current_roles.push(role_str.to_owned());
+                            //                     }
+                            //                 }
+                            //             }
+                            //         }
+                            //         "x-allowed-roles" => {
+                            //             if let Some(array) = value.as_array() {
+                            //                 for role in array {
+                            //                     if let Some(role_str) = role.as_str() {
+                            //                         current_roles.push(role_str.to_owned());
+                            //                     }
+                            //                 }
+                            //             }
+                            //         }
+                            //         _ => {}
+                            //     }
+                            //     // if key == "x-hasura-allowed-roles" {
+                            //     //     current_roles.push(value)
+                            //     // }
+                            // }
                         }
                         _ => {
                             println!("Unexpected value found in `claims`.");
                         }
                     }
+
                 }
+                if current_roles.contains(&String::from("user")) {
+                    is_user = true;
+                }
+                // if req.context.contains_key("apollo_authentication::JWT::claims") {
+                //     Ok(ControlFlow::Continue(req));
+                // }
+                // else {
+                //     tracing::error!("rejecting unauthenticated request");
+                //     let response = supergraph::Response::error_builder()
+                //         .error(
+                //             graphql::Error::builder()
+                //                 .message("unauthenticated".to_string())
+                //                 .extension_code("AUTH_ERROR")
+                //                 .build(),
+                //         )
+                //         .status_code(StatusCode::UNAUTHORIZED)
+                //         .context(req.context)
+                //         .build()?;
+                //     Ok(ControlFlow::Break(response));
+                // }
+                // if true {
+                //     let response = supergraph::Response::error_builder()
+                //             .error(
+                //                 graphql::Error::builder()
+                //                     .message("unauthenticated".to_string())
+                //                     .extension_code("AUTH_ERROR")
+                //                     .build(),
+                //             )
+                //             .status_code(StatusCode::UNAUTHORIZED)
+                //             .context(req.context)
+                //             .build()?;
+                //         Ok(ControlFlow::Break(response))
+                // }
 
                 //println!("{:#?}",claims);
+                if !is_user {
+                    let elapsed_time = start_time.elapsed();
+                    println!("Elapsed time non user: {:?}", elapsed_time);
 
-
-                let query_ast = parse_query::<&str>(&*inc_query).unwrap();
-
-                // check if role = user.
-                // if so, then we run schema validator.
-
-
-                let valid = schema_validator(query_ast,schema_ast.clone(),convert_map(&allow_list.clone()));
-
-                if !valid {
-                    // let's log the error
-                    tracing::error!("Operation is not allowed!");
-
-                    // Prepare an HTTP 400 response with a GraphQL error message
-                    let res = supergraph::Response::error_builder()
-                        .error(
-                            graphql::Error::builder()
-                                .message("invalid query")
-                                .extension_code("ANONYMOUS_OPERATION")
-                                .build(),
-                        )
-                        .status_code(StatusCode::BAD_REQUEST)
-                        .context(req.context)
-                        .build()?;
-                    Ok(ControlFlow::Break(res))
-                } else {
-                    // we're good to go!
-                    tracing::info!("Operation is allowed!");
                     Ok(ControlFlow::Continue(req))
+                } else {
+                    let query_ast = parse_query::<&str>(&*inc_query).unwrap();
+
+                    let valid = schema_validator(query_ast,schema_ast,convert_map(&allow_list.clone()));
+
+                    if !valid {
+                        // let's log the error
+                        tracing::error!("Operation is not allowed!");
+
+                        // Prepare an HTTP 400 response with a GraphQL error message
+                        let res = supergraph::Response::error_builder()
+                            .error(
+                                graphql::Error::builder()
+                                    .message("invalid query")
+                                    .extension_code("ANONYMOUS_OPERATION")
+                                    .build(),
+                            )
+                            .status_code(StatusCode::BAD_REQUEST)
+                            .context(req.context)
+                            .build()?;
+                        Ok(ControlFlow::Break(res))
+                    } else {
+                        // we're good to go!
+                        tracing::info!("Operation is allowed!");
+                        let elapsed_time = start_time.elapsed();
+                        println!("Elapsed time: {:?}", elapsed_time);
+                        Ok(ControlFlow::Continue(req))
+                    }
                 }
+
+
+
             })
             // .rate_limit()
             // .checkpoint()
@@ -195,7 +278,8 @@ fn check_fields_allowed<'a>(field_map: &HashMap<&str, Vec<&str>>, sel_set: &Vec<
                     if !allowed_fields.contains(&field_name) {
                         return false;
                     }
-                    if let Some(field_type) = get_field_type(field_name, schema_doc.clone(), parent_type) {
+                    if let Some(mut field_type) = get_field_type(field_name, schema_doc.clone(), parent_type) {
+                        field_type = field_type.replace("[","").replace("]","").replace("!","");
                         if let sub_sel_set = &field.selection_set.items {
                             if !check_fields_allowed(field_map, sub_sel_set, &field_type, schema_doc.clone()) {
                                 return false;
@@ -280,7 +364,7 @@ fn schema_validator<'a>(query_ast: Document<'a,&'a str>, schema_ast: s::Document
                         }
                     }
                     OperationDefinition::Mutation(mt) => {
-                        let selects = &qq.selection_set.items;
+                        let selects = &mt.selection_set.items;
                         let parent_type = "Mutation"; // The root query type
                         let result = check_fields_allowed(&allowed, selects, &parent_type,schema_doc.clone());
                         println!("validation result is {result}");

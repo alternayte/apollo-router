@@ -36,7 +36,7 @@ use crate::plugin::PluginInit;
 use crate::plugins::authentication::jwks::JwkSetInfo;
 use crate::plugins::authentication::jwks::JwksConfig;
 use crate::register_plugin;
-use crate::services::router;
+use crate::services::{router, supergraph};
 use crate::Context;
 
 mod jwks;
@@ -361,6 +361,37 @@ impl Plugin for AuthenticationPlugin {
             })
             .service(service)
             .boxed()
+    }
+
+    fn supergraph_service(&self, service: supergraph::BoxService) -> supergraph::BoxService {
+            ServiceBuilder::new()
+                .checkpoint(move |request: supergraph::Request| {
+                    if request
+                        .context
+                        .contains_key(APOLLO_AUTHENTICATION_JWT_CLAIMS)
+                    {
+                        Ok(ControlFlow::Continue(request))
+                    } else {
+                        // This is a metric and will not appear in the logs
+                        tracing::info!(
+                            monotonic_counter.apollo_require_authentication_failure_count = 1u64,
+                        );
+                        tracing::error!("rejecting unauthenticated request");
+                        let response = supergraph::Response::error_builder()
+                            .error(
+                                graphql::Error::builder()
+                                    .message("unauthenticated".to_string())
+                                    .extension_code("AUTH_ERROR")
+                                    .build(),
+                            )
+                            .status_code(StatusCode::UNAUTHORIZED)
+                            .context(request.context)
+                            .build()?;
+                        Ok(ControlFlow::Break(response))
+                    }
+                })
+                .service(service)
+                .boxed()
     }
 }
 

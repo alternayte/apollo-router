@@ -19,6 +19,7 @@ use graphql_parser::query::{Definition, Document, OperationDefinition, Type};
 use std::vec::Vec;
 use apollo_router::layers::ServiceBuilderExt;
 use http::StatusCode;
+use crate::plugins::authentication::APOLLO_AUTHENTICATION_JWT_CLAIMS;
 
 
 #[derive(Debug)]
