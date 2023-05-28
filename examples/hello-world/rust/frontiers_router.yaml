@@ -1,0 +1,61 @@
+supergraph:
+  introspection: true
+  query_planning:
+    experimental_cache:
+      in_memory:
+        limit: 512
+apq:
+  subgraph:
+    all:
+      enabled: true
+  router:
+    cache:
+      in_memory:
+        limit: 512
+headers:
+  all:
+    request:
+      - propagate:
+          matching: .*
+traffic_shaping:
+  all:
+    compression: gzip
+server:
+  experimental_parser_recursion_limit: 7
+authentication:
+  require_authentication: true
+  jwt:
+    jwks:
+      - url: https://frontiersin-dev.eu.auth0.com/.well-known/jwks.json
+      - url: https://oauth.test-frontiersin.net/.well-known/jwks.json
+telemetry:
+  metrics:
+    prometheus:
+      # By setting this endpoint you enable other containers and pods to access the prometheus endpoint
+      enabled: true
+      listen: 0.0.0.0:9090
+      path: /metrics
+plugins:
+  # this plugin has one piece of configuration,
+  # the name of the entity you'd like to say hello to
+  example.hello_world:
+    name: "Bob"
+    allow_list:
+      Query:
+        - reviewerMarketplace_recommendations
+        - articles
+      ReviewerMarketplace_Article:
+        - article
+      article_article:
+        - '*'
+#      space:
+#        - id
+#        - name
+#      User:
+#        - name
+#        - id
+#      Review:
+#        - '*'
+#      Product:
+#        - name
+#        - reviews
