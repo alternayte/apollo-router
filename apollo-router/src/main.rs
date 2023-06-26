@@ -1,4 +1,5 @@
 //! Main entry point for CLI command to start server.
+//! // add custom plguns here
 mod graph_allow_list;
 
 fn main() {

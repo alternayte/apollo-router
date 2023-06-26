@@ -17,9 +17,9 @@ headers:
     request:
       - propagate:
           matching: .*
-traffic_shaping:
-  all:
-    compression: gzip
+#traffic_shaping:
+#  all:
+#    compression: gzip
 server:
   experimental_parser_recursion_limit: 7
 authentication:
