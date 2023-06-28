@@ -1,9 +1,8 @@
 use apollo_router::plugin::Plugin;
 use apollo_router::plugin::PluginInit;
 use apollo_router::{graphql, register_plugin};
-use apollo_router::services::execution;
-use apollo_router::services::subgraph;
-use apollo_router::services::supergraph;
+use apollo_router::services::{subgraph,supergraph,execution};
+
 use schemars::JsonSchema;
 use serde::Deserialize;
 use tower::BoxError;
@@ -22,11 +21,12 @@ use apollo_router::layers::ServiceBuilderExt;
 use http::StatusCode;
 use std::borrow::Borrow;
 use std::cell::RefCell;
+use std::ptr::null;
 use std::rc::Rc;
 use serde_json::{json, Value};
 // use crate::plugins::authentication::APOLLO_AUTHENTICATION_JWT_CLAIMS;
 
-
+const APOLLO_AUTHENTICATION_JWT_CLAIMS: &str = "apollo_authentication::JWT::claims";
 
 
 #[derive(Debug)]
@@ -34,62 +34,30 @@ struct HelloWorld<'a> {
     #[allow(dead_code)]
     configuration: Conf,
     supergraph_sdl: Arc<String>,
-    //supergraph_sdl: Arc<Mutex<Option<Arc<Arc<String>>>>>,
-    // schema_ast: s::Document<'a,&'a str>,
-    //schema_ast: Option<s::Document<'a,&'a str>>,
     schema_ast: Option<s::Document<'a, String>>,
     schema_hash: HashMap<String,String>
 }
 
-// impl HelloWorld {
-//     fn get_schema_ast(self) {
-//        let pp = self.supergraph_sdl.clone();
-//     }
-// }
-
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 struct Conf {
     // Put your plugin configuration here. It will automatically be deserialized from JSON.
-    name: String, // The name of the entity you'd like to say hello to
+    name: String,
+    admin_secret: String,
     allow_list: HashMap<String,Vec<String>>
 }
 
-// This is a bare bones plugin that can be duplicated when creating your own.
+
 #[async_trait::async_trait]
 impl Plugin for HelloWorld<'static> {
     type Config = Conf;
 
     async fn new(init: PluginInit<Self::Config>) -> Result<Self, BoxError> {
-        let mut schema_doc: Option<s::Document<&str>> = None;
-
-        // Initialize the supergraph_sdl when it becomes available
-        // For example, if it's injected into the `init` parameter:
         let sdl = init.supergraph_sdl.clone();
-        //*supergraph_sdl.lock().unwrap() = Some(Arc::new(sdl));
 
-
-        //let supergraph_sdl = init.supergraph_sdl.clone().to_string();
-
-        //let super_sdl_guard = supergraph_sdl.lock().unwrap();
-        //let sdl_str = super_sdl_guard.as_ref().unwrap().as_str();
-        // let sdl = super_sdl.clone();
-        // let sdl_str: String = sdl.into();
-        //
-        // let schema_doc = parser(sdl_str);
         let doc_a = parse_schema(&sdl);
         let doc_b = doc_a?.into_static();
         drop(sdl);
-        //let schema_doc = parse_schema::<&str>(&sdl)?.to_owned();
         let schema_doc = doc_b;
-        //let my_schema = Some();
-        // let my_schema = schema_doc.clone();
-        // let defs = my_schema.definitions;
-        //let sdl = String::from(supergraph_sdl);
-
-
-
-
-
 
         Ok(HelloWorld {
             configuration: init.config,
@@ -102,20 +70,14 @@ impl Plugin for HelloWorld<'static> {
 
 
     fn supergraph_service(&self, service: supergraph::BoxService) -> supergraph::BoxService {
-
-        let mut valid_query: bool = false;
-
-
-        let supergraph_sdl = self.supergraph_sdl.clone();
+        //let mut avalon_token = false;
+        let mut default_role :String = Default::default();
 
         let allow_list = self.configuration.allow_list.clone();
-
-        let sdl = supergraph_sdl.clone();; //.to_owned().clone();
+        let admin_secret = self.configuration.admin_secret.clone();
 
         let schema_doc_opt =self.schema_ast.clone();
         let schema_doc = schema_doc_opt.clone().unwrap();
-
-        //let schema_ast = get_schema_ast(&sdl);
 
         if self.schema_ast.is_some() {
             println!("get schema and cache!");
@@ -135,18 +97,12 @@ impl Plugin for HelloWorld<'static> {
             result
         }
 
-        println!("super service");
-
-
-        // Say hello when our service is added to the router_service
-        // stage of the router plugin pipeline.
-        // #[cfg(test)]
-        // println!("Hello {}", self.configuration.name);
-
         // Always use service builder to compose your plugins.
         // It provides off the shelf building blocks for your plugin.
         ServiceBuilder::new()
             .checkpoint(move |req: supergraph::Request| {
+                let mut my_role: String = Default::default();
+                let mut current_roles:Vec<String> = Vec::new();
                 let start_time = Instant::now();
 
                 let mut is_user: bool = false;
@@ -156,21 +112,20 @@ impl Plugin for HelloWorld<'static> {
 
                 println!("Elapsed time bef: {:?}", elapsed_time);
 
-                //let inc_query = req.supergraph_request..body().query.as_ref().unwrap();
-                let claims = req.context.get("apollo_authentication::JWT::claims");
-                //let request_schema = schema_ast.clone();
+                let claims = req.context.get(APOLLO_AUTHENTICATION_JWT_CLAIMS);
+
                 let inc_query = req.supergraph_request.body().query.as_ref().unwrap().to_owned().clone();
 
-                let mut current_roles:Vec<String> = Vec::new();
+
                 if let Ok(Some(claims)) = claims {
                     match claims {
-                        serde_json::Value::Object(map) => {
+                        Value::Object(map) => {
                             for (key, value) in map.iter() {
                                 println!("{}: {}", key, value);
 
 
                                 match key.as_str() {
-                                    "https://graph.frontiers-ss-dev.info/jwt/claims" | "https://graph.test-frontiersin.net/jwt/claims" | "https://graph.frontiersin.org/jwt/claims" => {
+                                    "https://graph.frontiers-ss-dev.info/jwt/claims" | "https://graph.frontiers-ss-int.info/jwt/claims" | "https://graph.test-frontiersin.net/jwt/claims" | "https://graph.frontiersin.org/jwt/claims" => {
                                         let roles = json!(value);
                                         println!("my roles {}",roles);
                                         if let Some(obj) = roles.as_object() {
@@ -196,16 +151,37 @@ impl Plugin for HelloWorld<'static> {
                                                     }
                                                     _ => {}
                                                 }
-                                                println!("Key: {}", key);
-                                                println!("Value: {}", value);
+                                                // println!("Key: {}", key);
+                                                // println!("Value: {}", value);
                                             }
                                         }
                                     }
                                     "ext" => {
+                                        //avalon_token = true;
                                         let graph_obj = json!(value);
+
                                         if let Some(obj) = graph_obj.as_object() {
                                             for (key, value) in obj {
                                                 extract_role_from_claims(key, value, &mut current_roles);
+                                                my_role = String::from("hello");
+                                                let _ = req.context.insert("my_default_role",my_role);
+                                                // default_role = "".parse().unwrap();
+                                                //default_role = "".to_string();
+                                                let val = req.context.get::<&str,String>("my_default_role");
+                                                match val {
+                                                    Ok(Some(value)) => {
+                                                        // The value exists and is Some(String)
+                                                        println!("The value is: {}", value);
+                                                    }
+                                                    Ok(None) => {
+                                                        // The value exists but is None
+                                                        println!("The value is None");
+                                                    }
+                                                    Err(error) => {
+                                                        // An error occurred
+                                                        println!("An error occurred: {:?}", error);
+                                                    }
+                                                }
 
                                             }
                                         }
@@ -224,6 +200,7 @@ impl Plugin for HelloWorld<'static> {
                     is_user = true;
                 }
 
+
                 if !is_user {
                     let elapsed_time = start_time.elapsed();
                     println!("Elapsed time non user: {:?}", elapsed_time);
@@ -231,40 +208,22 @@ impl Plugin for HelloWorld<'static> {
                     Ok(ControlFlow::Continue(req))
                 } else {
 
-                    // let key = String::from("schema_key");
-                    // let mut hasher = self.schema_hash.clone();
-                    // let value = match hasher.entry(key.clone()) {
-                    //     std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                    //     std::collections::hash_map::Entry::Vacant(entry) => {
-                    //         let new_value = parse_schema::<&str>(r#""#).unwrap();
-                    //         entry.insert(new_value)
-                    //     }
-                    // };
-
-                    // let ss = self.schema_ast.clone().unwrap();
-                    //
-                    // //let schema_ast = parse_schema::<&str>(&*supergraph_sdl).unwrap();
                     let inc_q = inc_query.clone();
-                    //
+
                     let query_ast = parse_query::<&str>(&inc_q).unwrap();
-                    // let pp = ss.clone();
-                    let pp = schema_doc.clone();
 
+                    let schema_cloned = schema_doc.clone();
 
-                    //drop(ss);
-
-                    valid = schema_validator(query_ast,pp,convert_map(&allow_list.clone()));
+                    valid = schema_validator(query_ast,schema_cloned,convert_map(&allow_list.clone()));
 
                     if !valid {
-                        // let's log the error
                         tracing::error!("Operation is not allowed!");
 
-                        // Prepare an HTTP 400 response with a GraphQL error message
                         let res = supergraph::Response::error_builder()
                             .error(
                                 graphql::Error::builder()
-                                    .message("invalid query")
-                                    .extension_code("ANONYMOUS_OPERATION")
+                                    .message("Not Authorized")
+                                    .extension_code("FORBIDDEN")
                                     .build(),
                             )
                             .status_code(StatusCode::BAD_REQUEST)
@@ -285,10 +244,57 @@ impl Plugin for HelloWorld<'static> {
 
 
             })
+            // .map_request(move |req: supergraph::Request| {
             // .rate_limit()
             // .checkpoint()
             // .timeout()
             .service(service)
+            .map_request(move |mut req:supergraph::Request| {
+                let mut avalon_token = false;
+                let mut current_roles:Vec<String> = Vec::new();
+                let claims = req.context.get(APOLLO_AUTHENTICATION_JWT_CLAIMS);
+
+
+                if let Ok(Some(claims)) = claims {
+                    match claims {
+                        Value::Object(map) => {
+                            for (key, value) in map.iter() {
+                                //println!("{}: {}", key, value);
+
+
+                                match key.as_str() {
+                                    "ext" => {
+                                        avalon_token = true;
+                                        let graph_obj = json!(value);
+
+                                        if let Some(obj) = graph_obj.as_object() {
+                                            for (key, value) in obj {
+                                                extract_role_from_claims(key, value, &mut current_roles);
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        _ => {
+                            println!("Unexpected value found in `claims`.");
+                        }
+                    }
+
+                }
+                // println!("def role: {}",req.context.get("my_role"));
+                    if avalon_token {
+                        req.supergraph_request.headers_mut().insert("x-hasura-admin-secret",admin_secret.parse().unwrap());
+                        default_role = "reader-full".to_string();
+                        req.supergraph_request.headers_mut().insert("x-hasura-default-role",default_role.parse().unwrap());
+
+                    }
+
+                // }
+
+                req
+            })
             .boxed()
     }
 
@@ -315,21 +321,9 @@ impl Plugin for HelloWorld<'static> {
     }
 }
 
-// fn get_schema_ast_2(sdl: &str) -> s::Document<String> {
-//     let sdll = self.supergraph_sdl.clone();
-//     let schema_ast = parse_schema::<String>(sdl).unwrap().clone();
-//     schema_ast
-// }
-
-// fn parser(sdl: String) -> s::Document<'static, String> {
-//     let my_sdl = sdl.clone();
-//     let schema = parse_schema(&my_sdl).unwrap();
-//     let pp = schema.clone();
-//     pp.into()
-// }
 fn extract_role_from_claims(key: &String, value: &Value, current_roles: &mut Vec<String>) {
     match key.as_str() {
-        "https://graph.frontiers-ss-dev.info/jwt/claims" | "https://graph.test-frontiersin.net/jwt/claims" | "https://graph.frontiersin.org/jwt/claims" => {
+        "https://graph.frontiers-ss-dev.info/jwt/claims" | "https://graph.frontiers-ss-int.info/jwt/claims" | "https://graph.test-frontiersin.net/jwt/claims" | "https://graph.frontiersin.org/jwt/claims" => {
             let roles = json!(value);
             println!("my roles {}",roles);
             if let Some(obj) = roles.as_object() {
@@ -353,10 +347,15 @@ fn extract_role_from_claims(key: &String, value: &Value, current_roles: &mut Vec
                                 }
                             }
                         }
+                        "x-hasura-default-role" => {
+                            // println!("def role some match: {}",value.to_string());
+                            // let role_clone = value.clone();
+                            // default_role = &role_clone.to_string();
+                        }
                         _ => {}
                     }
-                    println!("Key: {}", key);
-                    println!("Value: {}", value);
+                    // println!("Key: {}", key);
+                    // println!("Value: {}", value);
                 }
             }
         }
@@ -475,7 +474,7 @@ fn schema_validator<'a>(query_ast: Document<'a,&'a str>, schema_ast: s::Document
                         let parent_type = "Query"; // The root query type
                         let result = check_fields_allowed(&allowed, selects, &parent_type,&schema_doc.clone());
                         println!("validation result is {result}");
-                        if result {
+                        if !result {
                             println!("Bad query");
                             return result
                         }
